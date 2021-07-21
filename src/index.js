@@ -1,83 +1,43 @@
-import axios from "axios";
-import request from "request";
-import cheerio from "cheerio";
-import { readFile } from "fs";
-import { node, encase, chain, fork, encaseP } from "fluture";
 const fs = require("fs");
+const rp = require("request-promise");
+const _fluture = require("fluture");
+const cheerio = require("cheerio");
+const url = "https://www.imdb.com/?ref_=nv_home";
 
-// encasing an axios propmise
+//encasing a promise returining function to fluture
+const flutureRequestPromise = _fluture.encaseP(rp);
 
-const fetchAxios = encaseP(axios);
-
-// request post with curried function
-
-const requestPosts = () => fetchAxios("https://www.imdb.com/?ref_=nv_home");
-
-// getting file content and pipe it to parse it
-
-const getFileContent = (file) =>
-  node((done) => {
-    readFile(file, "utf8", done);
-  }).pipe(chain(encase(JSON.parse)));
-
-// getting values from DOM elements with help of cheerio
-
+//Extract data from raw html through Cheerio
 const getValuesFromCheerio = (html) => {
-  const imdb = [];
-  let name, collection;
   let $ = cheerio.load(html);
+  let imdb = [];
+  let collection = "";
+  let movieTitle = "";
   $(
-    'div[class="TopBoxOfficeTitle__BoxOfficeTitleName-dujkoe-1 fpNAXa"]'
-  )
-  .each(function (index, element) {
-    if(index == 0) {
-      name = element.children[0].data;
-      imdb.push({name})
-    }   
-  })
+    'a[class="TopBoxOfficeTitle__BoxOfficeTitlePageLink-dujkoe-0 dDNrEz boxOfficeTitleLink"]'
+  ).each(function (index, element) {
+    movieTitle = element.children[0].children[0].data;
+    collection = element.children[1].children[0].data;
+    imdb.push({ movieTitle, collection });
+  });
+  const imdbTopMovies = JSON.stringify(imdb);
+  writeFileContent(imdbTopMovies);
+};
 
-  $(
-    'div[class="TopBoxOfficeTitle__BoxOfficeGrossAmount-dujkoe-5 bdjpKH"]'
-  )
-  .each(function (index, element) {
-    if(index === 0) {
-      collection = element.children[0].data;
-      imdb.push({collection})
+//Write content to the file
+const writeFileContent = (content) => {
+  fs.writeFile("./output/output.json", content, (err) => {
+    if (err) {
+      console.error(err);
+      return;
     }
-  })
-
-  const disc = JSON.stringify(imdb);
-  fs.writeFile("output.json", disc, (err, result) => {
-    if (err) console.log("error", err);
+    console.log("Output JSON generated");
   });
 };
 
-// get IMDB data with help of request and passing it to cheerio
-
-const getImdbData = () => {
-  const get = {
-    uri: "https://www.imdb.com/?ref_=nv_home",
-    headers: {
-      accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-      "accept-encoding": "gzip, deflate, br",
-      "accept-language": "en-US,en;q=0.9",
-    },
-    gzip: true,
-  };
-  request(get, (error, res, html) => {
-    if (error) {
-      console.log(error);
-    } else {
-      getValuesFromCheerio(html);
-    }
-  });
-};
-
-requestPosts().pipe(
-  fork((rej) => console.log("reject", rej))((res) =>
-    console.log("resolve", getImdbData())
+//Forking of fluture
+flutureRequestPromise(url).pipe(
+  _fluture.fork((rej) => console.log("reject", rej))((html) =>
+    getValuesFromCheerio(html)
   )
 );
-
-getFileContent("output.json").pipe(fork(console.error)(console.log));
